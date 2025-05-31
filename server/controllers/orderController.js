@@ -13,10 +13,10 @@ const generateOrderNumber = () => {
 };
 
 const createOrder = async (req, res) => {
-  const connection = await pool.getConnection();
+  const client = await pool.connect();
 
   try {
-    await connection.beginTransaction();
+    await client.query("BEGIN");
 
     const { productId, variantId, quantity, customerInfo, totalAmount } =
       req.body;
@@ -25,16 +25,16 @@ const createOrder = async (req, res) => {
     const orderNumber = generateOrderNumber();
 
     // Create order
-    const [orderResult] = await connection.query(
-      "INSERT INTO orders (order_number, product_id, variant_id, quantity, total_amount) VALUES (?, ?, ?, ?, ?)",
+    const orderResult = await client.query(
+      "INSERT INTO orders (order_number, product_id, variant_id, quantity, total_amount) VALUES ($1, $2, $3, $4, $5) RETURNING id",
       [orderNumber, productId, variantId, quantity, totalAmount]
     );
 
-    const orderId = orderResult.insertId;
+    const orderId = orderResult.rows[0].id;
 
     // Store customer information
-    await connection.query(
-      "INSERT INTO customer_info (order_id, full_name, email, phone, address, city, state, zip_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    await client.query(
+      "INSERT INTO customer_info (order_id, full_name, email, phone, address, city, state, zip_code) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
       [
         orderId,
         customerInfo.fullName,
@@ -49,8 +49,8 @@ const createOrder = async (req, res) => {
 
     // Update inventory
     if (variantId) {
-      await connection.query(
-        "UPDATE variants SET stock = stock - ? WHERE id = ?",
+      await client.query(
+        "UPDATE variants SET stock = stock - $1 WHERE id = $2",
         [quantity, variantId]
       );
     }
@@ -59,7 +59,7 @@ const createOrder = async (req, res) => {
     const transactionStatus = Math.random() < 0.8 ? "completed" : "failed";
 
     if (transactionStatus === "completed") {
-      await connection.query("UPDATE orders SET status = ? WHERE id = ?", [
+      await client.query("UPDATE orders SET status = $1 WHERE id = $2", [
         "completed",
         orderId,
       ]);
@@ -75,14 +75,14 @@ const createOrder = async (req, res) => {
         total: totalAmount,
       });
 
-      await connection.commit();
+      await client.query("COMMIT");
       res.json({
         success: true,
         orderNumber,
         message: "Order placed successfully",
       });
     } else {
-      await connection.query("UPDATE orders SET status = ? WHERE id = ?", [
+      await client.query("UPDATE orders SET status = $1 WHERE id = $2", [
         "failed",
         orderId,
       ]);
@@ -93,18 +93,18 @@ const createOrder = async (req, res) => {
         customerInfo,
       });
 
-      await connection.commit();
+      await client.query("COMMIT");
       res.status(400).json({
         success: false,
         message: "Transaction failed. Please try again.",
       });
     }
   } catch (error) {
-    await connection.rollback();
+    await client.query("ROLLBACK");
     console.error("Error creating order:", error);
     res.status(500).json({ message: "Error creating order" });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
@@ -112,7 +112,7 @@ const getOrderByNumber = async (req, res) => {
   try {
     const { orderNumber } = req.params;
 
-    const [orders] = await pool.query(
+    const result = await pool.query(
       `SELECT o.*, p.name as product_name, p.price as product_price,
               v.name as variant_name, v.value as variant_value,
               ci.full_name, ci.email, ci.phone, ci.address, ci.city, ci.state, ci.zip_code
@@ -120,9 +120,11 @@ const getOrderByNumber = async (req, res) => {
        JOIN products p ON o.product_id = p.id
        LEFT JOIN variants v ON o.variant_id = v.id
        JOIN customer_info ci ON o.id = ci.order_id
-       WHERE o.order_number = ?`,
+       WHERE o.order_number = $1`,
       [orderNumber]
     );
+
+    const orders = result.rows;
 
     if (orders.length === 0) {
       return res.status(404).json({ message: "Order not found" });

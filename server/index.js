@@ -19,12 +19,22 @@ app.use("/api", require("./routes/health"));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: "Something went wrong!" });
+  console.error("Error details:", {
+    message: err.message,
+    stack: err.stack,
+    name: err.name,
+  });
+  res.status(500).json({
+    message: "Something went wrong!",
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    name: err.name,
+  });
 });
 
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  console.log("Environment:", process.env.NODE_ENV);
+  console.log("Database host:", process.env.DB_HOST);
 });
