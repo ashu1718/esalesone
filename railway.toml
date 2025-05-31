@@ -1,0 +1,26 @@
+[build]
+builder = "nixpacks"
+buildCommand = "echo 'Building services...'"
+
+[deploy]
+startCommand = "echo 'Starting services...'"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 10
+
+[[services]]
+name = "client"
+sourceDir = "client"
+buildCommand = "npm install && npm run build"
+startCommand = "npm start"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+
+[[services]]
+name = "server"
+sourceDir = "server"
+buildCommand = "npm install"
+startCommand = "npm start"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 100 
